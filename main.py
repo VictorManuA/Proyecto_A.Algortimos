@@ -1,3 +1,5 @@
+import requests
+import json
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
@@ -9,8 +11,75 @@ control = spotipy.Spotify(
         scope="user-library-read"#Solo permisos de lectura
     )
 )
-
-results = control.current_user_saved_tracks(limit=10)
+results = control.current_user_saved_tracks(limit=20)
 for idx, item in enumerate(results['items']):
     track = item['track']
     print(idx +1, track['artists'][0]['name'], " – ", track['name'])
+
+def buscar_reccobeats(track):#Buscar data 
+    spotify_id = track.get("id")
+    if not spotify_id:
+        print("No ID de spotify")
+        return
+    try:
+        url = "https://api.reccobeats.com/v1/track"
+        respuesta = requests.get(
+            url,
+            params={"ids": spotify_id},
+            timeout=15
+        )
+        respuesta.raise_for_status()
+        resultados = respuesta.json().get("content", [])
+
+        if not resultados:
+            print("No se encontró en Recco")
+            return
+
+        cancion_recco = resultados[0]
+        recco_id = cancion_recco.get("id")
+
+        if not recco_id:
+            print("No se obtuvo el ID de ReccoBeats.")
+            return
+
+        #Caracteristicas
+        url_audio = (
+            f"https://api.reccobeats.com/v1/"
+            f"track/{recco_id}/audio-features"
+        )
+        respuesta_audio = requests.get(
+            url_audio,
+            timeout=10
+        )
+        respuesta_audio.raise_for_status()
+        datos_audio = respuesta_audio.json()
+
+        print("\nDATOS GENERALES RECCOBEATS ---")
+        print(json.dumps(
+            cancion_recco,
+            indent=4,
+            ensure_ascii=False
+        ))
+        print("\nCARACTERÍSTICAS ACÚSTICAS ---")
+        print(json.dumps(
+            datos_audio,
+            indent=4,
+            ensure_ascii=False
+        ))
+
+    except requests.exceptions.RequestException as error: print("Error", error)
+    except ValueError: print("ReccoBeats no válida.")
+
+results = control.current_user_saved_tracks(limit=20)
+
+for idx, item in enumerate(results["items"], start=1):
+
+    track = item["track"]
+    if not track: continue
+    print("\n" + "=" * 55)
+    print(f"CANCIÓN {idx}")
+    print("Artista:", track["artists"][0]["name"])
+    print("Título:", track["name"])
+    print("Spotify ID:", track["id"])
+    buscar_reccobeats(track)
+    print("=" * 55)
