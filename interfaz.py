@@ -1,6 +1,5 @@
 import customtkinter as ctk
 
-# título, artista, tempo (BPM), energía, bailabilidad
 CANCIONES = (
     ("Luz de mañana", "Mar Abierto", 92, 0.48, 0.64),
     ("Ciudad de noche", "Norte", 124, 0.86, 0.81),

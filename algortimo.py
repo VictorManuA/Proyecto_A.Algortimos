@@ -2,7 +2,6 @@ from itertools import combinations
 from typing import NamedTuple
 from clasificador import arista
 
-
 class Conexion(NamedTuple):
     origen: int
     destino: int
