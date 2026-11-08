@@ -1,12 +1,10 @@
-import argparse
 import re
 import subprocess
 from bisect import bisect_right
-from itertools import combinations
 from math import isfinite
-from pathlib import Path
 from statistics import median
 from time import sleep
+
 import requests
 
 PESOS = dict(genero=.30, bpm=.20, energia=.20, densidad=.10, brillo=.10, valencia=.10)
@@ -17,22 +15,22 @@ ESCALAS = {
     "brillo": ((.34, .67), ("oscuro", "moderado", "brillante")),
     "valencia": ((.35, .65), ("melancólica", "intermedia", "alegre")),
 }
-
-MATRIZ = {# Los pares de géneros sin criterio asignado quedan fuera de la cobertura.
+MATRIZ = {  # Los pares de géneros sin criterio asignado quedan fuera de la cobertura.
     frozenset(("rock", "hard rock")): .25,
     frozenset(("rock", "pop")): .50,
     frozenset(("rock", "jazz")): .75,
     frozenset(("hard rock", "classical")): 1.,
 }
-
 ISRC = re.compile(r"[A-Za-z]{2}[A-Za-z0-9]{3}[0-9]{7}")
 CAMPOS_AUDIO = ("brillo", "densidad")
+
 
 def faltan_medidas(cancion):
     return any(cancion[campo] is None for campo in CAMPOS_AUDIO)
 
 
-def guardar_medidas(cancion, medidas, fuente):# Conserva los valores directos y registra la procedencia de cada estimación.
+def guardar_medidas(cancion, medidas, fuente):
+    """Conserva los valores directos y registra la procedencia de cada estimación."""
     for campo, (valor, detalle) in medidas.items():
         if cancion[campo] is None:
             cancion[campo] = min(1, valor)
@@ -40,7 +38,8 @@ def guardar_medidas(cancion, medidas, fuente):# Conserva los valores directos y 
             cancion.setdefault("fuentes", {})[campo] = fuente
 
 
-def clasificar(track, audio):#Acepta género explícito de pista y medidas directas, nunca sustitutos
+def clasificar(track, audio):
+    """Acepta género explícito de pista y medidas directas, nunca sustitutos."""
     genero = track.get("genre") or audio.get("genre")
     genero = genero.strip().casefold() if isinstance(genero, str) else None
     cancion = dict(titulo=track.get("name") or "Título desconocido", genero=genero or None)
@@ -54,9 +53,11 @@ def clasificar(track, audio):#Acepta género explícito de pista y medidas direc
         cancion[campo] = valor if valido else None
     return cancion
 
+
 def etiqueta(campo, valor):#Asigna el intervalo que comienza en el umbral alcanzado
     cortes, nombres = ESCALAS[campo]
     return nombres[bisect_right(cortes, valor)]
+
 
 def arista(a, b):#Devuelve distancia en escala 0–100 y fracción del peso nominal cubierto
     suma = cobertura = 0.
@@ -71,14 +72,15 @@ def arista(a, b):#Devuelve distancia en escala 0–100 y fracción del peso nomi
             if delta is None:
                 continue
         elif campo == "bpm":
-            delta = min(abs(x-y) / 100, 1)
+            delta = min(abs(x - y) / 100, 1)
         else:
-            delta = abs(x-y)
+            delta = abs(x - y)
         suma += factor * delta
         cobertura += factor
     return (100 * suma / cobertura if cobertura else None), cobertura
 
-def estimar_audio(ruta, bpm):#Analiza hasta 30 s desde el inicio. Referencias provisionales: 4 ataques/pulso y 4000 Hz
+
+def estimar_audio(ruta, bpm):#Analiza hasta 30 s desde el inicio. `ruta` es un Path o los bytes del audio
     filtro = ("atrim=duration=30,aformat=channel_layouts=mono,aresample=22050,"
               "aspectralstats=win_size=1024:overlap=0.75:measure=centroid,"
               "astats=metadata=1:reset=1:measure_perchannel=none:measure_overall=RMS_level,"
@@ -105,7 +107,7 @@ def estimar_audio(ruta, bpm):#Analiza hasta 30 s desde el inicio. Referencias pr
         return {}
     hz = median(activos)
     medidas = {"brillo": (min(hz / 4000, 1), f"{hz:.0f} Hz")}
-    if bpm:        # Ataque: subida de nivel frente a los ~93 ms anteriores, separada ≥70 ms.
+    if bpm:  # Ataque: subida de nivel frente a los ~93 ms anteriores, separada ≥70 ms.
         ataques = 0
         ultimo = -100
         for i, nivel in enumerate(niveles):
@@ -121,7 +123,8 @@ def estimar_audio(ruta, bpm):#Analiza hasta 30 s desde el inicio. Referencias pr
             for k, (v, unidad) in medidas.items()}
 
 
-def completar_audio(cancion, ruta):# Completa únicamente datos ausentes y conserva el origen y la medida original
+def completar_audio(cancion, ruta):
+    """Completa únicamente datos ausentes y conserva el origen y la medida original."""
     if not faltan_medidas(cancion):
         return
     try:
@@ -131,7 +134,9 @@ def completar_audio(cancion, ruta):# Completa únicamente datos ausentes y conse
         return
     guardar_medidas(cancion, medidas, "audio local")
 
-def completar_catalogo(cancion, isrc):#Busca una grabación inequívoca por ISRC y usa su análisis público, sin audio
+
+def completar_catalogo(cancion, isrc):
+    """Busca una grabación inequívoca por ISRC y usa su análisis público, sin audio."""
     if not isinstance(isrc, str) or not ISRC.fullmatch(isrc):
         return
     if not faltan_medidas(cancion):
@@ -168,7 +173,8 @@ def completar_catalogo(cancion, isrc):#Busca una grabación inequívoca por ISRC
     except (requests.RequestException, ValueError, AttributeError, KeyError, TypeError) as error:
         print(f"{cancion['titulo']} · {servicio}: {type(error).__name__}")
 
-def completar_muestra(cancion, isrc):#Analiza en memoria la muestra oficial de la misma grabación.
+
+def completar_muestra(cancion, isrc):#Analiza en memoria la muestra oficial de la misma grabación
     if not faltan_medidas(cancion):
         return
     if not isinstance(isrc, str) or not ISRC.fullmatch(isrc):
@@ -232,29 +238,3 @@ def biblioteca(carpeta=None):#Reutiliza los lectores del proyecto y conserva inc
             if faltan_medidas(cancion) and isrc:
                 completar_catalogo(cancion, isrc)
         yield cancion
-
-def imprimir(canciones):#Enumera pistas y después cada par de índices en orden de llegada
-    for i, c in enumerate(canciones, 1):
-        print(f"{i}. {c['titulo']} · {c['artista'] or 'Artista desconocido'}")
-        print("   género =", c["genero"] or "desconocido")
-        for campo in ESCALAS:
-            valor = c[campo]
-            detalle = "desconocido" if valor is None else f"{valor} ({etiqueta(campo, valor)})"
-            if campo in c.get("estimaciones", {}):
-                fuente = c.get("fuentes", {}).get(campo, "audio local")
-                detalle = f"{valor:.3f} ({etiqueta(campo, valor)}) · estimado desde {fuente}: {c['estimaciones'][campo]}"
-            print(f"   {campo} = {detalle}")
-    print("\nEl peso mide distancia entre dos canciones. Cada canción carece de peso individual.")
-    print("Par | Peso (0–100, renormalizado por cobertura) | Cobertura nominal")
-    for (i, a), (j, b) in combinations(enumerate(canciones, 1), 2):
-        peso, cobertura = arista(a, b)
-        texto = "indeterminado" if peso is None else f"{peso:.2f}"
-        print(f"{i}–{j} | {texto} | {cobertura:.0%}")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--audios", type=Path, help="Carpeta con archivos ID_SPOTIFY.wav/.flac/.mp3/.m4a")
-    args = parser.parse_args()
-    if args.audios and not args.audios.is_dir():
-        parser.error("--audios debe indicar una carpeta existente")
-    imprimir(list(biblioteca(args.audios)))
