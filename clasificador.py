@@ -3,7 +3,10 @@ import subprocess
 from bisect import bisect_right
 from math import isfinite
 from statistics import median
-from time import sleep
+from time import monotonic, sleep
+from threading import Lock
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 
 import requests
 
@@ -23,6 +26,8 @@ MATRIZ = {  # Los pares de géneros sin criterio asignado quedan fuera de la cob
 }
 ISRC = re.compile(r"[A-Za-z]{2}[A-Za-z0-9]{3}[0-9]{7}")
 CAMPOS_AUDIO = ("brillo", "densidad")
+_TURNO_MUSICBRAINZ = Lock()
+_ULTIMA_CONSULTA = 0.0
 
 
 def faltan_medidas(cancion):
@@ -87,7 +92,7 @@ def estimar_audio(ruta, bpm):#Analiza hasta 30 s desde el inicio. `ruta` es un P
               "ametadata=print:file=-")
     resultado = subprocess.run(
         ["ffmpeg", "-nostdin", "-v", "error", "-i", ("pipe:0" if isinstance(ruta, bytes) else str(ruta.resolve())), "-map", "0:a:0",
-         "-af", filtro, "-f", "null", "-"], capture_output=True, input=ruta if isinstance(ruta, bytes) else None,
+         "-t", "30", "-threads", "1", "-filter_threads", "1", "-af", filtro, "-f", "null", "-"], capture_output=True, input=ruta if isinstance(ruta, bytes) else None,
         timeout=45, check=True)
     niveles, centroides = [], []
     for linea in resultado.stdout.decode().splitlines():
@@ -143,7 +148,10 @@ def completar_catalogo(cancion, isrc):
         return
     try:
         servicio = "MusicBrainz"
-        sleep(1.1)  # Límite de consultas a MusicBrainz.
+        global _ULTIMA_CONSULTA
+        with _TURNO_MUSICBRAINZ:
+            sleep(max(0, 1.1 - (monotonic() - _ULTIMA_CONSULTA)))
+            _ULTIMA_CONSULTA = monotonic()
         r = requests.get("https://musicbrainz.org/ws/2/isrc/" + isrc.upper(),
                          params={"fmt": "json"}, headers={"User-Agent": "ClasificadorMusical/1.0 (local music analysis)"},
                          timeout=5)
@@ -215,26 +223,36 @@ def completar_muestra(cancion, isrc):#Analiza en memoria la muestra oficial de l
         return f"{etapa}: {type(error).__name__}"
 
 
-def biblioteca(carpeta=None):#Reutiliza los lectores del proyecto y conserva incluso pistas inaccesibles
-    from main import buscar_reccobeats, crear_cliente
+def cargar_cancion(item, carpeta=None):
+    """Carga una canción conservando las fuentes y los valores ausentes."""
+    from main import buscar_reccobeats
+    track = item.get("track") or {}
+    respuesta = buscar_reccobeats(track) if track.get("id") else None
+    audio = respuesta[1] if respuesta and isinstance(respuesta[1], dict) else {}
+    if respuesta and not track.get("genre"):
+        track = {**track, "genre": respuesta[0].get("genre")}
+    cancion = clasificar(track, audio)
+    if carpeta and track.get("id"):
+        for ext in (".wav", ".flac", ".mp3", ".m4a"):
+            ruta = carpeta / (track["id"] + ext)
+            if ruta.is_file():
+                completar_audio(cancion, ruta)
+                break
+    isrc = (track.get("external_ids") or {}).get("isrc")
+    aviso = completar_muestra(cancion, isrc)
+    if aviso and faltan_medidas(cancion) and isrc:
+        completar_catalogo(cancion, isrc)
+    return cancion
+
+
+def biblioteca(carpeta=None):
+    """Carga hasta 20 canciones con dos trabajos simultáneos y orden estable."""
+    from main import crear_cliente
     items = crear_cliente().current_user_saved_tracks(limit=20)["items"]
-    for item in items:
-        track = item.get("track") or {}
-        respuesta = buscar_reccobeats(track) if track.get("id") else None
-        audio = respuesta[1] if respuesta and isinstance(respuesta[1], dict) else {}
-        if respuesta and not track.get("genre"):
-            track = {**track, "genre": respuesta[0].get("genre")}
-        cancion = clasificar(track, audio)
-        if carpeta and track.get("id"):
-            for ext in (".wav", ".flac", ".mp3", ".m4a"):
-                ruta = carpeta / (track["id"] + ext)
-                if ruta.is_file():
-                    completar_audio(cancion, ruta)
-                    break
-        isrc = (track.get("external_ids") or {}).get("isrc")
-        aviso = completar_muestra(cancion, isrc)
-        if aviso:
-            print(f"{cancion['titulo']} · {aviso}")
-            if faltan_medidas(cancion) and isrc:
-                completar_catalogo(cancion, isrc)
-        yield cancion
+    with ThreadPoolExecutor(max_workers=2) as trabajos:
+        incompletas = 0
+        for cancion in trabajos.map(partial(cargar_cancion, carpeta=carpeta), items):
+            incompletas += faltan_medidas(cancion)
+            yield cancion
+        if incompletas:
+            print(f"Aviso: {incompletas} canciones tienen características de audio incompletas.")

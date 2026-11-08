@@ -5,13 +5,13 @@ import os
 import subprocess
 import sys
 import tempfile
-from itertools import combinations
 from pathlib import Path
 
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 
-from algortimo import kruskal
-from clasificador import arista, biblioteca
+from algortimo import conexiones, kruskal
+from clasificador import biblioteca
 from recorrido import recorrido_profundidad
 
 ANCHO, ALTO = 1200, 760
@@ -30,12 +30,8 @@ CONTROLES = ("P · playlist / características",
              "ESC · salir")
 
 def construir_grafo(canciones):
-    candidatas = []
-    for i, j in combinations(range(len(canciones)), 2):
-        peso, cobertura = arista(canciones[i], canciones[j])
-        if peso is not None:  # mismo criterio que usa kruskal()
-            candidatas.append((i, j, peso, cobertura))
-    return candidatas, kruskal(canciones)
+    candidatas = conexiones(canciones)
+    return candidatas, kruskal(canciones, candidatas)
 
 def color_peso(peso):
     """Verde (peso bajo = parecidas) -> amarillo -> rojo (peso alto)."""
@@ -260,10 +256,13 @@ def mostrar_grafo(pool, cantidad=None):
     escena = Escena(pool, n, area)
     arrastrando = None
     corriendo = True
+    estado_anterior = None
 
     while corriendo:
         reloj.tick(30)
         for ev in pygame.event.get():
+            if ev.type in (pygame.WINDOWEXPOSED, pygame.WINDOWRESTORED):
+                estado_anterior = None
             if ev.type == pygame.QUIT:
                 corriendo = False
             elif ev.type == pygame.KEYDOWN:
@@ -291,10 +290,17 @@ def mostrar_grafo(pool, cantidad=None):
                     max(area.left + 20, min(area.right - 20, ev.pos[0])),
                     max(area.top + 20, min(area.bottom - 20, ev.pos[1]))]
         hover = arrastrando if arrastrando is not None else escena.nodo_en(pygame.mouse.get_pos())
+        estado = (id(escena), hover, escena.ver_playlist, escena.mostrar_tenues,
+                  escena.inicio_lista, tuple(map(tuple, escena.posiciones)))
+        if estado == estado_anterior:
+            continue
+        estado_anterior = estado
         pantalla.fill(FONDO)
         escena.dibujar(pantalla, fuentes[0], hover)
         dibujar_panel(pantalla, fuentes, escena, hover, len(pool))
         pygame.display.flip()
+
+    pygame.quit()
 
 def lanzar_grafo(canciones, cantidad):
     """Abre el grafo en otro proceso para que la interfaz no se congele."""
@@ -331,13 +337,16 @@ def principal():
         try:
             for cancion in biblioteca(args.audios):
                 pool.append(cancion)
-                print(f"{len(pool)}. {cancion['titulo']} · {cancion['artista']}", flush=True)
         except (SpotifyException, SpotifyOauthError, RequestException, OSError) as error:
-            print(f"Error ({type(error).__name__}): {error}. "
+            print(f"Error de carga ({type(error).__name__}). "
                   "Revisa la conexión a Internet y las credenciales de Spotify.", file=sys.stderr)
             if not pool:
                 return 1
-            print(f"CANCION CARGADA - {len(pool)} ", flush=True)
+            print(f"Carga parcial: {len(pool)} canciones.", flush=True)
+    if not pool:
+        print("No hay canciones disponibles.")
+        return 0
+    print(f"Carga terminada: {len(pool)} canciones.", flush=True)
     mostrar_grafo(pool, args.n)
     return 0
 

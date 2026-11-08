@@ -4,6 +4,9 @@ from spotipy.oauth2 import SpotifyOAuth
 
 def crear_cliente():
     return spotipy.Spotify(
+        requests_timeout=(3, 10),
+        retries=1,
+        status_retries=1,
         auth_manager=SpotifyOAuth(
             client_id="fe91e7167ff7470a9be408d2dd1788bb",#Identificador de la aplicacion
             client_secret="8439288bab2d48ca9c6ebf9655fad87a",#Contraseña
@@ -15,7 +18,6 @@ def crear_cliente():
 def buscar_reccobeats(track):#Buscar data 
     spotify_id = track.get("id")
     if not spotify_id:
-        print("No ID de spotify")
         return
     try:
         url = "https://api.reccobeats.com/v1/track"
@@ -27,12 +29,10 @@ def buscar_reccobeats(track):#Buscar data
         respuesta.raise_for_status()
         resultados = respuesta.json().get("content", [])
         if not resultados:
-            print("No se encontró en Recco")
             return
         cancion_recco = resultados[0]
         recco_id = cancion_recco.get("id")
         if not recco_id:
-            print("No se obtuvo el ID de ReccoBeats.")
             return
         #Caracteristicas
         url_audio = (
@@ -47,7 +47,7 @@ def buscar_reccobeats(track):#Buscar data
         datos_audio = respuesta_audio.json()
         return cancion_recco, datos_audio
 
-    except requests.exceptions.RequestException: print("R. consulta fallida.")
-    except ValueError: print("R. respuesta no válida.")
+    except requests.exceptions.RequestException: print("ReccoBeats: error de conexión o respuesta del servicio.")
+    except ValueError: print("ReccoBeats: respuesta no válida.")
 
 

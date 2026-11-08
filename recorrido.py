@@ -46,4 +46,14 @@ def resultados(canciones):#Presenta las conexiones elegidas y la secuencia de ca
     return "\n".join(lineas)
 
 if __name__ == "__main__":
-    print(resultados(biblioteca()))
+    from requests.exceptions import RequestException
+    from spotipy.exceptions import SpotifyException, SpotifyOauthError
+
+    print("Cargando canciones...", flush=True)
+    try:
+        canciones = list(biblioteca())
+        grupos = recorrido_profundidad(canciones, kruskal(canciones))
+        print(f"Recorrido listo: {len(canciones)} canciones, {len(grupos)} grupos.")
+    except (RequestException, SpotifyException, SpotifyOauthError, OSError) as error:
+        print(f"Error de carga ({type(error).__name__}). Revisa la conexión y la autorización de Spotify.")
+        raise SystemExit(1)

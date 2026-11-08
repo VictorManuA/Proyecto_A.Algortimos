@@ -8,14 +8,21 @@ class Conexion(NamedTuple):
     peso: float
     cobertura: float
 
-def kruskal(canciones):
+def conexiones(canciones):
+    """Calcula cada distancia una sola vez, en orden estable."""
     indices = range(len(canciones))
     candidatas = []
     for i, j in combinations(indices, 2):
         peso, cobertura = arista(canciones[i], canciones[j])
         if peso is not None:
             candidatas.append(Conexion(i, j, peso, cobertura))
-    padres = list(indices)
+    return candidatas
+
+
+def kruskal(canciones, candidatas=None):
+    if candidatas is None:
+        candidatas = conexiones(canciones)
+    padres = list(range(len(canciones)))
     tamanos = [1] * len(canciones)
     def raiz(i):
         while i != padres[i]:
