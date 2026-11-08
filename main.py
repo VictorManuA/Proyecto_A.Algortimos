@@ -60,9 +60,7 @@ def buscar_reccobeats(track):#Buscar data
 if __name__ == "__main__":
     control = crear_cliente()
     results = control.current_user_saved_tracks(limit=20)
-
     for idx, item in enumerate(results["items"], start=1):
-
         track = item["track"]
         if not track: continue
         print("\n" + "=" * 55)
