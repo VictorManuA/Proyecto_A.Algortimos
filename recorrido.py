@@ -45,7 +45,6 @@ def resultados(canciones):#Presenta las conexiones elegidas y la secuencia de ca
 if __name__ == "__main__":
     from requests.exceptions import RequestException
     from spotipy.exceptions import SpotifyException, SpotifyOauthError
-
     print("Cargando canciones", flush=True)
     try:
         canciones = list(biblioteca())

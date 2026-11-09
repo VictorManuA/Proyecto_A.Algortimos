@@ -24,6 +24,7 @@ TEXTO_SUAVE = (140, 146, 165)
 ARISTA_TENUE = (60, 66, 88)
 PALETA_GENEROS = [(86, 156, 255), (255, 120, 110), (110, 220, 160), (255, 205, 90),
                   (190, 130, 255), (120, 210, 230), (255, 150, 200), (170, 170, 170)]
+
 CONTROLES = ("P ocultar lista",
              "E ocultar aristas",)
 
@@ -32,9 +33,7 @@ AMBIENTES = (
     ("Relajado", (.3, 90, .5)), ("Equilibrado", (.5, 110, .55)),
     ("Animado", (.7, 125, .8)), ("Energético", (.9, 145, .75)),
 )
-RANGOS_ANIMO = (
-    None, (0, .25, 0, 90), (0, .45, 0, 110),
-    (.3, .7, 80, 140), (.55, 1, 95, 180), (.75, 1, 120, float("inf")),
+RANGOS_ANIMO = (None, (0, .25, 0, 90), (0, .45, 0, 110),(.3, .7, 80, 140), (.55, 1, 95, 180), (.75, 1, 120, float("inf")),
 )
 
 def normalizar_genero(valor):
@@ -430,14 +429,12 @@ def principal():
     ap.add_argument("--audios", type=Path, help="carpeta de audios locales para completar características")
     ap.add_argument("--n", type=int, help="cuántas canciones dibujar")
     args = ap.parse_args()
-
     if args.n is not None and args.n < 1:
         ap.error("--n debe ser mayor que cero")
     if args.audios and not args.audios.is_dir():
         ap.error("--audios debe indicar una carpeta existente")
     if args.audios and args.json:
         ap.error("--audios se utiliza al cargar la biblioteca de Spotify")
-
     if args.json:
         with open(args.json, encoding="utf-8") as archivo:
             pool = json.load(archivo)
@@ -461,6 +458,5 @@ def principal():
     print(f"Carga terminada: {len(pool)} canciones.", flush=True)
     mostrar_grafo(pool, args.n)
     return 0
-
 if __name__ == "__main__":
     sys.exit(principal())

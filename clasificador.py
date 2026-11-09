@@ -114,7 +114,7 @@ def estimar_audio(ruta, bpm):#Analiza hasta 30 s desde el inicio. `ruta` es un P
         return {}
     hz = median(activos)
     medidas = {"brillo": (min(hz / 4000, 1), f"{hz:.0f} Hz")}
-    if bpm:  # Ataque: subida de nivel frente a los ~93 ms anteriores, separada ≥70 ms.
+    if bpm:
         ataques = 0
         ultimo = -100
         for i, nivel in enumerate(niveles):
@@ -131,7 +131,6 @@ def estimar_audio(ruta, bpm):#Analiza hasta 30 s desde el inicio. `ruta` es un P
 
 
 def completar_audio(cancion, ruta):
-    """Completa únicamente datos ausentes y conserva el origen y la medida original."""
     if not faltan_medidas(cancion):
         return
     try:

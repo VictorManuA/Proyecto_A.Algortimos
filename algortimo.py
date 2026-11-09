@@ -9,7 +9,6 @@ class Conexion(NamedTuple):
     cobertura: float
 
 def conexiones(canciones):
-    """Calcula cada distancia una sola vez, en orden estable."""
     indices = range(len(canciones))
     candidatas = []
     for i, j in combinations(indices, 2):
@@ -17,7 +16,6 @@ def conexiones(canciones):
         if peso is not None:
             candidatas.append(Conexion(i, j, peso, cobertura))
     return candidatas
-
 
 def kruskal(canciones, candidatas=None):
     if candidatas is None:

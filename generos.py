@@ -1,9 +1,5 @@
-"""Completa el género ausente usando el álbum de una grabación identificada por ISRC."""
-
 from functools import lru_cache
-
 import requests
-
 
 def normalizar_genero(nombre):
     texto = " ".join(nombre.casefold().split())
@@ -13,7 +9,6 @@ def normalizar_genero(nombre):
         "classique": "classical", "clásica": "classical",
         "indie-pop": "indie pop",
     }.get(texto, texto)
-
 
 @lru_cache(maxsize=256)
 def generos_album(album_id):
@@ -36,7 +31,6 @@ def generos_album(album_id):
 
 
 def completar_genero(cancion, pista, isrc):
-    """Conserva el género directo y registra el origen de cualquier estimación."""
     if cancion.get("genero"):
         return
     if not isinstance(isrc, str) or not isrc:
@@ -49,10 +43,8 @@ def completar_genero(cancion, pista, isrc):
     try:
         generos = generos_album(str(album_id))
     except (requests.RequestException, ValueError, TypeError, AttributeError):
-        print("Género: no se pudo consultar el álbum en Deezer.")
         return
     if generos:
-        # Usa la primera etiqueta del catálogo para el grafo y conserva todas para filtrar.
         cancion["genero"] = generos[0]
         cancion["generos"] = list(generos)
         cancion.setdefault("fuentes", {})["genero"] = "álbum de Deezer"
