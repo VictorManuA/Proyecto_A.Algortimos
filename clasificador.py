@@ -10,6 +10,8 @@ from functools import partial
 
 import requests
 
+from generos import completar_genero
+
 PESOS = dict(genero=.30, bpm=.20, energia=.20, densidad=.10, brillo=.10, valencia=.10)
 ESCALAS = {
     "bpm": ((70, 100, 120, 140), ("muy lento", "lento", "moderado", "rápido", "muy rápido")),
@@ -182,8 +184,8 @@ def completar_catalogo(cancion, isrc):
         print(f"{cancion['titulo']} · {servicio}: {type(error).__name__}")
 
 
-def completar_muestra(cancion, isrc):#Analiza en memoria la muestra oficial de la misma grabación
-    if not faltan_medidas(cancion):
+def completar_muestra(cancion, isrc):#Reutiliza la misma grabación para género y muestra de audio
+    if not faltan_medidas(cancion) and cancion.get("genero"):
         return
     if not isinstance(isrc, str) or not ISRC.fullmatch(isrc):
         return "sin ISRC válido"
@@ -196,6 +198,9 @@ def completar_muestra(cancion, isrc):#Analiza en memoria la muestra oficial de l
             return f"Deezer: {pista['error'].get('message', 'error de catálogo')}"
         if (pista.get("isrc") or "").upper() != isrc.upper():
             return "Deezer: sin coincidencia exacta"
+        completar_genero(cancion, pista, isrc)
+        if not faltan_medidas(cancion):
+            return
         url = pista.get("preview") or ""
         if not url.startswith("https://"):
             return "Deezer: grabación sin muestra disponible"

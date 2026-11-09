@@ -25,9 +25,6 @@ def recorrido_profundidad(canciones, conexiones):#Devuelve los índices visitado
 
 def resultados(canciones):#Presenta las conexiones elegidas y la secuencia de canciones por componente
     canciones = list(canciones)
-    if not canciones:
-        return "la lista esta vacias"
-    
     conexiones = kruskal(canciones)
     grupos = recorrido_profundidad(canciones, conexiones)
     lineas = ["Conexiones de Kruskal (números originales de la biblioteca)"]
@@ -49,11 +46,11 @@ if __name__ == "__main__":
     from requests.exceptions import RequestException
     from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
-    print("Cargando canciones...", flush=True)
+    print("Cargando canciones", flush=True)
     try:
         canciones = list(biblioteca())
         grupos = recorrido_profundidad(canciones, kruskal(canciones))
         print(f"Recorrido listo: {len(canciones)} canciones, {len(grupos)} grupos.")
     except (RequestException, SpotifyException, SpotifyOauthError, OSError) as error:
-        print(f"Error de carga ({type(error).__name__}). Revisa la conexión y la autorización de Spotify.")
+        print(f"Error de carga ({type(error).__name__})No hay internet")
         raise SystemExit(1)
