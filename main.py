@@ -15,7 +15,6 @@ def crear_cliente():
 def buscar_reccobeats(track):#Buscar data 
     spotify_id = track.get("id")
     if not spotify_id:
-        print("No ID de spotify")
         return
     try:
         url = "https://api.reccobeats.com/v1/track"
@@ -27,12 +26,10 @@ def buscar_reccobeats(track):#Buscar data
         respuesta.raise_for_status()
         resultados = respuesta.json().get("content", [])
         if not resultados:
-            print("No se encontró en Recco")
             return
         cancion_recco = resultados[0]
         recco_id = cancion_recco.get("id")
         if not recco_id:
-            print("No se obtuvo el ID de ReccoBeats.")
             return
         url_audio = (        #Caracteristicas
             f"https://api.reccobeats.com/v1/"
@@ -45,5 +42,7 @@ def buscar_reccobeats(track):#Buscar data
         respuesta_audio.raise_for_status()
         datos_audio = respuesta_audio.json()
         return cancion_recco, datos_audio
-    except requests.exceptions.RequestException: print("R. consulta fallida.")
-    except ValueError: print("R. respuesta no válida.")
+    except (requests.ConnectionError, requests.Timeout):
+        raise
+    except requests.RequestException:
+        return

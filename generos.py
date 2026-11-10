@@ -2,7 +2,7 @@ from functools import lru_cache
 import requests
 
 def normalizar_genero(nombre):
-    texto = " ".join(nombre.casefold().split())
+    texto = " ".join((nombre or "").casefold().split())
     return {
         "r&b/soul": "r&b", "r & b": "r&b", "rnb": "r&b",
         "hip hop": "hip-hop", "rap/hip hop": "hip-hop",
@@ -16,10 +16,8 @@ def generos_album(album_id):
     respuesta = requests.get(f"https://api.deezer.com/album/{album_id}", timeout=(3, 5))
     respuesta.raise_for_status()
     datos = respuesta.json()
-    if datos.get("error"):
-        raise ValueError("Deezer devolvió un error de catálogo")
-    if str(datos.get("id")) != str(album_id):
-        raise ValueError("El álbum recibido no coincide")
+    if datos.get("error") or str(datos.get("id")) != str(album_id):
+        return ()
     nombres = []
     for genero in (datos.get("genres") or {}).get("data", []):
         nombre = genero.get("name")
@@ -42,7 +40,9 @@ def completar_genero(cancion, pista, isrc):
         return
     try:
         generos = generos_album(str(album_id))
-    except (requests.RequestException, ValueError, TypeError, AttributeError):
+    except (requests.ConnectionError, requests.Timeout):
+        raise
+    except requests.RequestException:
         return
     if generos:
         cancion["genero"] = generos[0]

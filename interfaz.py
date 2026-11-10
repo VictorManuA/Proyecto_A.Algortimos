@@ -1,18 +1,13 @@
-import argparse
-import json
 import math
 import os
-import subprocess
 import sys
-import tempfile
-from pathlib import Path
-
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 
 from algortimo import conexiones, kruskal
 from clasificador import biblioteca
 from recorrido import recorrido_profundidad
+from generos import normalizar_genero
 
 ANCHO, ALTO = 1360, 820
 CONTROLES_ANCHO = 300
@@ -25,34 +20,28 @@ ARISTA_TENUE = (60, 66, 88)
 PALETA_GENEROS = [(86, 156, 255), (255, 120, 110), (110, 220, 160), (255, 205, 90),
                   (190, 130, 255), (120, 210, 230), (255, 150, 200), (170, 170, 170)]
 
-CONTROLES = ("P ocultar lista",
-             "E ocultar aristas",)
+CONTROLES = ("P ocultar lista","E ocultar aristas",)
 
 AMBIENTES = (
     ("Cualquiera", None), ("Muy tranquilo", (.15, 70, .4)),
     ("Relajado", (.3, 90, .5)), ("Equilibrado", (.5, 110, .55)),
     ("Animado", (.7, 125, .8)), ("Energético", (.9, 145, .75)),
 )
-RANGOS_ANIMO = (None, (0, .25, 0, 90), (0, .45, 0, 110),(.3, .7, 80, 140), (.55, 1, 95, 180), (.75, 1, 120, float("inf")),
-)
-
-def normalizar_genero(valor):
-    texto = " ".join((valor or "").casefold().split())
-    return {"rnb": "r&b", "r & b": "r&b", "hip hop": "hip-hop",
-            "indie-pop": "indie pop"}.get(texto, texto)
+RANGOS_ANIMO = (None, (0, .25, 0, 90), (0, .45, 0, 110),(.3, .7, 80, 140), (.55, 1, 95, 180), (.75, 1, 120, float("inf")),)
 
 def seleccionar_indices(pool, genero, ambiente, energia_max, bpm_max, cantidad):
     candidatas = []
     objetivo = AMBIENTES[ambiente][1]
+    rango = RANGOS_ANIMO[ambiente]
+    genero = normalizar_genero(genero) if genero != "Todos" else None
     for indice, cancion in enumerate(pool):
-        if genero != "Todos" and normalizar_genero(cancion.get("genero")) != normalizar_genero(genero):
+        if genero is not None and normalizar_genero(cancion.get("genero")) != genero:
             continue
         energia, bpm = cancion.get("energia"), cancion.get("bpm")# El extremo superior permite todos los valores, incluidos los desconocidos.
         if energia_max < 100 and (energia is None or energia > energia_max / 100):
             continue
         if bpm_max < 300 and (bpm is None or bpm > bpm_max):
             continue
-        rango = RANGOS_ANIMO[ambiente]
         if rango:
             energia_min, energia_tope, bpm_min, bpm_tope = rango
             if energia is None or bpm is None:
@@ -105,7 +94,6 @@ class Preferencias:
     def __init__(self, pool, cantidad):
         generos = {normalizar_genero(c.get("genero")) for c in pool}
         generos.discard("")
-        self.sin_genero = sum(not normalizar_genero(c.get("genero")) for c in pool)
         self.generos = ["Todos", *sorted(generos)]
         self.barras = [
             Barra("Género musical", 150, 0, len(self.generos) - 1, 0, self.generos),
@@ -134,7 +122,7 @@ class Preferencias:
         elif evento.type == pygame.MOUSEBUTTONUP and evento.button == 1:
             self.activa = None
 
-    def dibujar(self, pantalla, fuentes, total, seleccionadas):
+    def dibujar(self, pantalla, fuentes, total):
         chica, media, grande = fuentes
         pygame.draw.rect(pantalla, PANEL_FONDO, (0, 0, CONTROLES_ANCHO, ALTO))
         pantalla.blit(grande.render("FILTROS", True, TEXTO), (24, 24))
@@ -143,10 +131,6 @@ class Preferencias:
         for barra in self.barras:
             barra.dibujar(pantalla, fuentes)
 
-
-def construir_grafo(canciones):
-    candidatas = conexiones(canciones)
-    return candidatas, kruskal(canciones, candidatas)
 
 def color_peso(peso):
     t = max(0.0, min(1.0, peso / 100.0))
@@ -159,9 +143,14 @@ def color_peso(peso):
 def recortar(texto, fuente, ancho_max):
     if fuente.size(texto)[0] <= ancho_max:
         return texto
-    while texto and fuente.size(texto + "…")[0] > ancho_max:
-        texto = texto[:-1]
-    return texto + "…"
+    inicio, fin = 0, len(texto)
+    while inicio < fin:
+        medio = (inicio + fin + 1) // 2
+        if fuente.size(texto[:medio] + "…")[0] <= ancho_max:
+            inicio = medio
+        else:
+            fin = medio - 1
+    return texto[:inicio] + "…"
 
 def punto_medio(a, b):
     return (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
@@ -176,11 +165,16 @@ def etiqueta(pantalla, fuente, texto, centro, color, fondo=False):
     pantalla.blit(img, rect)
 
 class Escena:
-    def __init__(self, pool, n, area):
-        self.area = area  # pygame.Rect donde vive el grafo
-        self.canciones = pool[:n]
+    def __init__(self, canciones, area):
+        self.area = area  # pygame.Rect 
+        self.canciones = canciones
         self.n = len(self.canciones)
-        self.candidatas, self.elegidas = construir_grafo(self.canciones)
+        self.candidatas = conexiones(canciones)
+        self.elegidas = kruskal(canciones, self.candidatas)
+        self.vecinos = [set() for _ in canciones]
+        for i, j, _, _ in self.candidatas:
+            self.vecinos[i].add(j)
+            self.vecinos[j].add(i)
         self.grupos = recorrido_profundidad(self.canciones, self.elegidas)
         self.orden = [i for grupo in self.grupos for i in grupo]
         self.numero_dfs = {i: pos for pos, i in enumerate(self.orden, 1)}
@@ -213,13 +207,7 @@ class Escena:
         return None
 
     def dibujar(self, pantalla, f_chica, hover):
-        vecinos = set()
-        if hover is not None:
-            for i, j, _, _ in self.candidatas:
-                if i == hover:
-                    vecinos.add(j)
-                elif j == hover:
-                    vecinos.add(i)
+        vecinos = self.vecinos[hover] if hover is not None else ()
 
         if self.mostrar_tenues:        # 1) aristas candidatas (tenues; las del nodo bajo el cursor se resaltan)
             for i, j, peso, _ in self.candidatas:
@@ -230,12 +218,17 @@ class Escena:
                 if destacada:
                     etiqueta(pantalla, f_chica, f"{peso:.1f}",
                              punto_medio(self.posiciones[i], self.posiciones[j]), color)
-
-        # 2) aristas del árbol mínimo (gruesas)
-        for c in self.elegidas:
+        for c in self.elegidas:        # 2) aristas del árbol mínimo (gruesas)
             pygame.draw.line(pantalla, color_peso(c.peso),
                              self.posiciones[c.origen], self.posiciones[c.destino], 4)
 
+        self.dibujar_nodos(pantalla, f_chica, hover, vecinos)
+        for c in self.elegidas:
+            etiqueta(pantalla, f_chica, f"{c.peso:.1f}",
+                     punto_medio(self.posiciones[c.origen], self.posiciones[c.destino]),
+                     color_peso(c.peso), fondo=True)
+
+    def dibujar_nodos(self, pantalla, f_chica, hover, vecinos):
         # 3) nodos
         centro = self.area.center
         for i, cancion in enumerate(self.canciones):
@@ -261,11 +254,6 @@ class Escena:
                 rect = txt.get_rect(center=(tx, ty))
                 rect.clamp_ip(self.area)
                 pantalla.blit(txt, rect)
-        for c in self.elegidas:
-            etiqueta(pantalla, f_chica, f"{c.peso:.1f}",
-                     punto_medio(self.posiciones[c.origen], self.posiciones[c.destino]),
-                     color_peso(c.peso), fondo=True)
-
 
 def dibujar_panel(pantalla, fuentes, escena, hover, pool_total):
     f_chica, f_media, f_grande = fuentes
@@ -295,15 +283,13 @@ def dibujar_panel(pantalla, fuentes, escena, hover, pool_total):
             linea(detalle, f_chica, TEXTO_SUAVE)
             y += 6
     else:
-        # leyenda de géneros
-        linea("Color del nodo = género", f_chica, TEXTO_SUAVE)
+        linea("Color del nodo = género", f_chica, TEXTO_SUAVE)        # leyenda de géneros
         for genero, color in escena.generos.items():
             pygame.draw.circle(pantalla, color, (x + 7, y + 8), 6)
             pantalla.blit(f_chica.render(genero, True, TEXTO), (x + 22, y))
             y += f_chica.get_linesize() + 1
         y += 6
-        # leyenda de pesos
-        linea("Color de arista = peso", f_chica, TEXTO_SUAVE)
+        linea("Color de arista = peso", f_chica, TEXTO_SUAVE)        # leyenda de pesos
         for k in range(ancho):
             pygame.draw.line(pantalla, color_peso(100 * k / ancho), (x + k, y), (x + k, y + 8))
         y += 12
@@ -311,9 +297,7 @@ def dibujar_panel(pantalla, fuentes, escena, hover, pool_total):
         d = f_chica.render("100 distintas", True, TEXTO_SUAVE)
         pantalla.blit(d, (x + ancho - d.get_width(), y))
         y += 26
-
-        # detalle de la canción bajo el cursor
-        pygame.draw.line(pantalla, ARISTA_TENUE, (x, y), (x + ancho, y))
+        pygame.draw.line(pantalla, ARISTA_TENUE, (x, y), (x + ancho, y))        # detalle de la canción bajo el cursor
         y += 10
         if hover is None:
             linea("Pasa el cursor sobre un nodo", f_chica, TEXTO_SUAVE)
@@ -354,7 +338,7 @@ def mostrar_grafo(pool, cantidad=None):
     n = min(len(pool), max(1, cantidad if cantidad is not None else len(pool)))
     preferencias = Preferencias(pool, n)
     indices = preferencias.seleccionar(pool)
-    escena = Escena([pool[i] for i in indices], len(indices), area)
+    escena = Escena([pool[i] for i in indices], area)
     valores_anteriores = preferencias.valores()
     arrastrando = None
     corriendo = True
@@ -377,7 +361,7 @@ def mostrar_grafo(pool, cantidad=None):
                     escena.mostrar_tenues = not escena.mostrar_tenues
             elif ev.type == pygame.MOUSEWHEEL:
                 if escena.ver_playlist and pygame.mouse.get_pos()[0] >= ANCHO - PANEL:
-                    escena.inicio_lista = max(0, min(max(0, escena.n - 7), escena.inicio_lista - ev.y))
+                    escena.inicio_lista = max(0, min(max(0, escena.n - 10), escena.inicio_lista - ev.y))
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
                 arrastrando = escena.nodo_en(ev.pos) if area.collidepoint(ev.pos) else None
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
@@ -391,7 +375,7 @@ def mostrar_grafo(pool, cantidad=None):
         if valores != valores_anteriores:
             nuevos = preferencias.seleccionar(pool)
             if nuevos != indices:
-                nueva = Escena([pool[i] for i in nuevos], len(nuevos), area)
+                nueva = Escena([pool[i] for i in nuevos], area)
                 nueva.ver_playlist = escena.ver_playlist
                 nueva.mostrar_tenues = escena.mostrar_tenues
                 escena, indices = nueva, nuevos
@@ -409,54 +393,19 @@ def mostrar_grafo(pool, cantidad=None):
             texto = fuentes[1].render("No hay musica con este filtro", True, TEXTO)
             pantalla.blit(texto, texto.get_rect(center=area.center))
         dibujar_panel(pantalla, fuentes, escena, hover, len(pool))
-        preferencias.dibujar(pantalla, fuentes, len(pool), len(indices))
+        preferencias.dibujar(pantalla, fuentes, len(pool))
         pygame.display.flip()
-
     pygame.quit()
 
-def lanzar_grafo(canciones, cantidad):
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
-        json.dump(canciones, f, ensure_ascii=False)
-        ruta = f.name
-    carpeta = os.path.dirname(os.path.abspath(__file__))
-    return subprocess.Popen(
-        [sys.executable, os.path.abspath(__file__), "--json", ruta, "--n", str(cantidad)],
-        cwd=carpeta)
-
 def principal():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--json", help="archivo JSON con canciones ya clasificadas")
-    ap.add_argument("--audios", type=Path, help="carpeta de audios locales para completar características")
-    ap.add_argument("--n", type=int, help="cuántas canciones dibujar")
-    args = ap.parse_args()
-    if args.n is not None and args.n < 1:
-        ap.error("--n debe ser mayor que cero")
-    if args.audios and not args.audios.is_dir():
-        ap.error("--audios debe indicar una carpeta existente")
-    if args.audios and args.json:
-        ap.error("--audios se utiliza al cargar la biblioteca de Spotify")
-    if args.json:
-        with open(args.json, encoding="utf-8") as archivo:
-            pool = json.load(archivo)
-    else:
-        from requests.exceptions import RequestException
-        from spotipy.exceptions import SpotifyException, SpotifyOauthError
-        print("-Cargando canciones-", flush=True)
-        pool = []
-        try:
-            for cancion in biblioteca(args.audios):
-                pool.append(cancion)
-        except (SpotifyException, SpotifyOauthError, RequestException, OSError) as error:
-            print(f"Error: ({type(error).__name__}). "
-                  "No hay Intenet", file=sys.stderr)
-            if not pool:
-                return 1
-            print(f"Carga parcial: {len(pool)} canciones.", flush=True)
-    if not pool:
-        print("No hay canciones")
-        return 0
-    print(f"Carga terminada: {len(pool)} canciones.", flush=True)
-    mostrar_grafo(pool, args.n)
+    from requests.exceptions import RequestException
+    from spotipy.exceptions import SpotifyException, SpotifyOauthError
+    try:
+        pool = list(biblioteca())
+    except (SpotifyException, SpotifyOauthError, RequestException):
+        return 1
+    if pool:
+        mostrar_grafo(pool)
     return 0
 if __name__ == "__main__":
     sys.exit(principal())

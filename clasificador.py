@@ -1,6 +1,5 @@
 import re
 import subprocess
-from bisect import bisect_right
 from math import isfinite
 from statistics import median
 from time import monotonic, sleep
@@ -13,12 +12,12 @@ import requests
 from generos import completar_genero
 
 PESOS = dict(genero=.30, bpm=.20, energia=.20, densidad=.10, brillo=.10, valencia=.10)
-ESCALAS = {
-    "bpm": ((70, 100, 120, 140), ("muy lento", "lento", "moderado", "rápido", "muy rápido")),
-    "energia": ((.20, .40, .60, .80), ("muy baja", "baja", "media", "alta", "muy alta")),
-    "densidad": ((.25, .50, .75), ("muy baja", "baja", "media", "alta")),
-    "brillo": ((.34, .67), ("oscuro", "moderado", "brillante")),
-    "valencia": ((.35, .65), ("melancólica", "intermedia", "alegre")),
+CAMPOS = {
+    "bpm": "tempo",
+    "energia": "energy",
+    "densidad": "rhythmic_density",
+    "brillo": "brightness",
+    "valencia": "valence",
 }
 MATRIZ = {  # Los pares de géneros sin criterio asignado quedan fuera de la cobertura.
     frozenset(("rock", "hard rock")): .25,
@@ -52,18 +51,13 @@ def clasificar(track, audio):
     cancion = dict(titulo=track.get("name") or "Título desconocido", genero=genero or None)
     artistas = track.get("artists") or []
     cancion["artista"] = ", ".join(a["name"] for a in artistas if a and a.get("name"))
-    for campo, origen in zip(ESCALAS, ("tempo", "energy", "rhythmic_density", "brightness", "valence")):
+    for campo, origen in CAMPOS.items():
         valor = audio.get(origen)
         valido = type(valor) in (int, float) and isfinite(valor)
         if valido:
             valido = valor > 0 if campo == "bpm" else 0 <= valor <= 1
         cancion[campo] = valor if valido else None
     return cancion
-
-
-def etiqueta(campo, valor):#Asigna el intervalo que comienza en el umbral alcanzado
-    cortes, nombres = ESCALAS[campo]
-    return nombres[bisect_right(cortes, valor)]
 
 
 def arista(a, b):#Devuelve distancia en escala 0–100 y fracción del peso nominal cubierto
@@ -135,8 +129,7 @@ def completar_audio(cancion, ruta):
         return
     try:
         medidas = estimar_audio(ruta, cancion["bpm"])
-    except (OSError, ValueError, subprocess.SubprocessError):
-        print(f"No se pudo analizar {ruta.name}")
+    except (OSError, subprocess.SubprocessError):
         return
     guardar_medidas(cancion, medidas, "audio local")
 
@@ -148,7 +141,6 @@ def completar_catalogo(cancion, isrc):
     if not faltan_medidas(cancion):
         return
     try:
-        servicio = "MusicBrainz"
         global _ULTIMA_CONSULTA
         with _TURNO_MUSICBRAINZ:
             sleep(max(0, 1.1 - (monotonic() - _ULTIMA_CONSULTA)))
@@ -163,7 +155,6 @@ def completar_catalogo(cancion, isrc):
         if len(grabaciones) != 1:
             return
         mbid = grabaciones[0]["id"]
-        servicio = "AcousticBrainz"
         r = requests.get(f"https://acousticbrainz.org/api/v1/{mbid}/low-level", timeout=5)
         if r.status_code == 404:
             return
@@ -179,52 +170,47 @@ def completar_catalogo(cancion, isrc):
             densidad = tasa * 60 / bpm
             medidas["densidad"] = (densidad / 4, f"{densidad:.2f} ataques/pulso")
         guardar_medidas(cancion, medidas, "AcousticBrainz")
-    except (requests.RequestException, ValueError, AttributeError, KeyError, TypeError) as error:
-        print(f"{cancion['titulo']} · {servicio}: {type(error).__name__}")
+    except (requests.ConnectionError, requests.Timeout):
+        raise
+    except requests.RequestException:
+        return
 
 
 def completar_muestra(cancion, isrc):#Reutiliza la misma grabación para género y muestra de audio
     if not faltan_medidas(cancion) and cancion.get("genero"):
         return
     if not isinstance(isrc, str) or not ISRC.fullmatch(isrc):
-        return "sin ISRC válido"
-    etapa = "catálogo Deezer"
+        return
     try:
         r = requests.get(f"https://api.deezer.com/track/isrc:{isrc.upper()}", timeout=8)
         r.raise_for_status()
         pista = r.json()
         if pista.get("error"):
-            return f"Deezer: {pista['error'].get('message', 'error de catálogo')}"
+            return
         if (pista.get("isrc") or "").upper() != isrc.upper():
-            return "Deezer: sin coincidencia exacta"
+            return
         completar_genero(cancion, pista, isrc)
         if not faltan_medidas(cancion):
             return
         url = pista.get("preview") or ""
         if not url.startswith("https://"):
-            return "Deezer: grabación sin muestra disponible"
-        etapa = "muestra Deezer"
+            return
         with requests.get(url, stream=True, timeout=10) as clip:
             clip.raise_for_status()
             contenido = bytearray()
             for bloque in clip.iter_content(65536):
                 contenido.extend(bloque)
                 if len(contenido) > 8_000_000:
-                    return "muestra demasiado grande"
+                    return
         bpm = cancion["bpm"] or pista.get("bpm")
         if type(bpm) not in (int, float) or not isfinite(bpm) or bpm <= 0:
             bpm = None
-        etapa = "análisis de la muestra"
         medidas = estimar_audio(bytes(contenido), bpm)
         guardar_medidas(cancion, medidas, "muestra de Deezer")
-        if not medidas:
-            return "muestra sin señal analizable"
-        if cancion["densidad"] is None:
-            return "densidad pendiente por falta de BPM"
-    except requests.HTTPError as error:
-        return f"{etapa}: HTTP {error.response.status_code}"
-    except (requests.RequestException, OSError, ValueError, subprocess.SubprocessError) as error:
-        return f"{etapa}: {type(error).__name__}"
+    except (requests.ConnectionError, requests.Timeout):
+        raise
+    except (requests.RequestException, OSError, subprocess.SubprocessError):
+        return
 
 
 def cargar_cancion(item, carpeta=None):
@@ -243,8 +229,8 @@ def cargar_cancion(item, carpeta=None):
                 completar_audio(cancion, ruta)
                 break
     isrc = (track.get("external_ids") or {}).get("isrc")
-    aviso = completar_muestra(cancion, isrc)
-    if aviso and faltan_medidas(cancion) and isrc:
+    completar_muestra(cancion, isrc)
+    if faltan_medidas(cancion) and isrc:
         completar_catalogo(cancion, isrc)
     return cancion
 
@@ -254,9 +240,4 @@ def biblioteca(carpeta=None):
     from main import crear_cliente
     items = crear_cliente().current_user_saved_tracks(limit=20)["items"]
     with ThreadPoolExecutor(max_workers=2) as trabajos:
-        incompletas = 0
-        for cancion in trabajos.map(partial(cargar_cancion, carpeta=carpeta), items):
-            incompletas += faltan_medidas(cancion)
-            yield cancion
-        if incompletas:
-            print(f"Aviso: {incompletas} canciones tienen características de audio incompletas.")
+        yield from trabajos.map(partial(cargar_cancion, carpeta=carpeta), items)
