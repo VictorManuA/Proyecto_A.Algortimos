@@ -1,7 +1,7 @@
 from algortimo import kruskal
 from clasificador import biblioteca
 
-def recorrido_profundidad(canciones, conexiones):#Devuelve los índices visitados por DFS, agrupados por componente
+def recorrido_profundidad(canciones, conexiones):
     vecinos = [[] for _ in canciones]
     for c in conexiones:
         vecinos[c.origen].append(c.destino)
