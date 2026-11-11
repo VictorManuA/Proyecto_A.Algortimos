@@ -20,23 +20,15 @@ def conexiones(canciones):
 def kruskal(canciones, candidatas=None):
     if candidatas is None:
         candidatas = conexiones(canciones)
-    padres = list(range(len(canciones)))
-    tamanos = [1] * len(canciones)
-    def raiz(i):
-        while i != padres[i]:
-            padres[i] = padres[padres[i]]
-            i = padres[i]
-        return i
-    elegidas = []    # El orden estable conserva el orden original de los pares en los empates.
+    n = len(canciones)
+    grupos = list(range(n))
+    elegidas = []
     for conexion in sorted(candidatas, key=lambda c: c.peso):
-        a, b = raiz(conexion.origen), raiz(conexion.destino)
-        if a == b:
-            continue
-        if tamanos[a] < tamanos[b]:
-            a, b = b, a
-        padres[b] = a
-        tamanos[a] += tamanos[b]
-        elegidas.append(conexion)
-        if len(elegidas) == len(canciones) - 1:
-            break
+        a = grupos[conexion.origen]
+        b = grupos[conexion.destino]
+        if a != b:
+            elegidas.append(conexion)
+            for i in range(n):
+                if grupos[i] == b:
+                    grupos[i] = a
     return elegidas
